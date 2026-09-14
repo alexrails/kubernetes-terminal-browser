@@ -1,0 +1,34 @@
+# Format example with fictional clusters: write your own into
+# ~/.config/ktb/clusters.yaml rather than copying these entries.
+#
+# GKE clusters offered when ktb starts. Each entry becomes
+#   gcloud container clusters get-credentials NAME --region REGION --project PROJECT
+# namespace is optional: preselected in the namespace list after get-credentials.
+# env is optional: prod or dev; by default clusters and projects ending in -prd
+# are prod, and commands there ask for confirmation.
+# Without any clusters here, ktb lists the GKE contexts already in kubeconfig;
+# ctrl+f finds more through gcloud.
+clusters:
+  - name: shop-europe-west1-dev
+    region: europe-west1
+    project: acme-shop-dev
+    namespace: shop-dev
+  - name: shop-us-central1-prd
+    region: us-central1
+    project: acme-shop-prd
+  - name: blog-europe-west1-dev
+    region: europe-west1
+    project: acme-blog-dev
+
+# Targets: one step from start to a pod. The application's current pod is
+# found by its workload (Deployment, StatefulSet, CronJob…), so a new
+# deploy's pod hash does not matter. Run one directly: ktb admin-shop-dev
+#   namespace  optional, defaults to the cluster's namespace
+#   container  optional, defaults to the pod's default container
+#   action     optional action id from config.yaml; empty opens the menu
+targets:
+  - name: admin-shop-dev
+    cluster: shop-europe-west1-dev
+    namespace: shop-dev
+    app: admin-web
+    action: rails-console

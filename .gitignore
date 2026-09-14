@@ -1,0 +1,8 @@
+/.cache/
+/.tools/
+/bin/
+/dist/
+*.test
+coverage.out
+.revmux
+__pycache__/

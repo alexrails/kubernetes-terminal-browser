@@ -1,0 +1,14 @@
+# Clusters live in a separate file: see clusters.example.yaml.
+refresh: 5s
+timeout: 15s
+actions:
+  - id: sh
+    label: Shell (/bin/sh)
+    argv: ["/bin/sh"]
+    stdin: true
+    tty: true
+  - id: rails-console
+    label: Rails console (bundle exec rails console)
+    argv: ["bundle", "exec", "rails", "console"]
+    stdin: true
+    tty: true
