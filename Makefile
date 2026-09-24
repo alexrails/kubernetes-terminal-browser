@@ -1,4 +1,4 @@
-.PHONY: build test race vet check cross install
+.PHONY: build test race vet check cross install screenshots
 GO := ./scripts/go
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
@@ -30,3 +30,13 @@ install: build
 	@case ":$$PATH:" in *":$(BINDIR):"*) ;; *) echo "Note: $(BINDIR) is not in PATH; add it in your shell profile" ;; esac
 	@command -v kubectl >/dev/null || echo "Note: kubectl not found in PATH: https://kubernetes.io/docs/tasks/tools/"
 	@command -v gcloud >/dev/null || echo "Note: gcloud not found in PATH (needed for GKE clusters): https://cloud.google.com/sdk/docs/install"
+# README screens from fictional data: the ui package renders them as ANSI text,
+# freeze (brew install charmbracelet/tap/freeze) turns them into SVG with the
+# font embedded, so columns line up in any browser.
+screenshots:
+	@command -v freeze >/dev/null || { echo "freeze not found: brew install charmbracelet/tap/freeze"; exit 1; }
+	@tmp=$$(mktemp -d) && KTB_SCREENS_DIR=$$tmp $(GO) test -count=1 -tags screenshots -run TestScreenshots ./internal/ui && \
+	mkdir -p docs/screenshots && for f in $$tmp/*.ansi; do \
+		freeze -l ansi "$$f" --window --padding 20,24 --margin 0 --border.radius 8 --font.size 16 \
+			-o docs/screenshots/$$(basename "$$f" .ansi).svg </dev/null || exit 1; \
+	done; rm -rf "$$tmp"

@@ -7,6 +7,17 @@ tag `vX.Y.Z`, and `ktb --version` prints it.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-24
+
+### Added
+
+- README screenshots, rendered from fictional data; `make screenshots`
+  regenerates them (needs `freeze`).
+
+### Changed
+
+- README restructured and shortened: quick start, one section per topic.
+
 ## [0.1.0] - 2026-09-24
 
 ### Added
