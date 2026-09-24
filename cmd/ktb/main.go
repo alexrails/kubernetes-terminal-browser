@@ -15,10 +15,21 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 )
 
+// version is set at build time from the git tag (make build, GoReleaser);
+// `go install module@vX.Y.Z` builds carry it in the build info instead.
+var version = "dev"
+
+func ktbVersion() string {
+	if bi, ok := debug.ReadBuildInfo(); ok && version == "dev" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return bi.Main.Version
+	}
+	return version
+}
 func run() error {
 	source := flag.String("kubeconfig", "", "Explicit kubeconfig file (otherwise kubectl resolves KUBECONFIG/default)")
 	ns := flag.String("namespace", "", "Initial namespace override")
@@ -29,11 +40,16 @@ func run() error {
 	refresh := flag.Duration("refresh", -1, "Polling interval; 0 disables polling (default 5s/config)")
 	timeout := flag.Duration("timeout", 0, "Read deadline (default 15s/config)")
 	check := flag.Bool("check-config", false, "Validate configuration and exit")
+	showVersion := flag.Bool("version", false, "Print the version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage: ktb [flags] [target]\n\nA target from clusters.yaml opens its application's pod directly.\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("ktb", ktbVersion())
+		return nil
+	}
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	c, e := config.Load(*cfgPath, explicit["config"])
@@ -84,14 +100,14 @@ func run() error {
 	versionCtx, versionCancel := context.WithTimeout(ctx, 5*time.Second)
 	r := process.Run(versionCtx, bin, []string{"version", "--client", "-o=json"}, nil)
 	versionCancel()
-	version := "unknown (client version check failed)"
+	kv := "unknown (client version check failed)"
 	if r.Err == nil {
 		var v struct{ ClientVersion struct{ GitVersion string } }
 		if json.Unmarshal(r.Stdout, &v) == nil {
-			version = v.ClientVersion.GitVersion
+			kv = v.ClientVersion.GitVersion
 		}
 	}
-	m := ui.New(ctx, kubectl.Client{Executable: bin, Timeout: c.Timeout}, gcloud.Client{Executable: *gcloudExecutable, Kubeconfig: *source}, c, *source, *ns, version)
+	m := ui.New(ctx, kubectl.Client{Executable: bin, Timeout: c.Timeout}, gcloud.Client{Executable: *gcloudExecutable, Kubeconfig: *source}, c, *source, *ns, "ktb "+ktbVersion()+" · kubectl "+kv)
 	if start != nil {
 		m.Start(*start)
 	}

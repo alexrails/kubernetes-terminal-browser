@@ -183,6 +183,7 @@ Without `--kubeconfig`, kubectl and gcloud resolve `KUBECONFIG` and `~/.kube/con
 | `--refresh DURATION` | Pod refresh interval; `0` disables the timer | `5s` or the config value |
 | `--timeout DURATION` | Deadline for short read requests | `15s` or the config value |
 | `--check-config` | Validate the settings and exit without opening the TUI | Off |
+| `--version` | Print the ktb version and exit | — |
 | `--help` | Show flag help | — |
 
 The only positional argument is a bookmark name: `ktb [flags] [bookmark]`.
@@ -397,5 +398,13 @@ python3 scripts/auth_pty_smoke.py  # fake kubectl: Always (manual mode, foregrou
 ```
 
 Run `make build` before the PTY scripts; they need Python 3 with the standard library only. [docs/integration.md](docs/integration.md) describes the kind fixtures and the integration test against a real API server. Tested locally on macOS arm64 with kind v0.32.0, API server and kubectl v1.36.1; the test kind cluster was deleted afterwards. Linux builds are produced too, but interactive use on Linux, SSH/tmux and real GKE/non-GKE credential plugins still need separate testing.
+
+### Versioning and releases
+
+Versions follow [Semantic Versioning](https://semver.org/); a release is a git tag `vX.Y.Z`. `make build` embeds the version from `git describe` (`v0.1.0`, or `v0.1.0-3-gabc1234-dirty` between tags), and `ktb --version` and the `?` help show it. User-visible changes go under `Unreleased` in [CHANGELOG.md](CHANGELOG.md). To release:
+
+1. Rename `Unreleased` in `CHANGELOG.md` to the new version and date, and add an empty `Unreleased` above it.
+2. Commit, then tag: `git tag -a v0.2.0 -m v0.2.0`.
+3. `make install` to install the tagged build.
 
 The pod column adapter is based on [Kubernetes printer v1.35.0](https://github.com/kubernetes/kubernetes/blob/v1.35.0/pkg/printers/internalversion/printers.go), with the license attribution kept in the source. For a wider range of server versions, check the columns against `kubectl get pods` on your pod types. With many pods and an expensive credential plugin, keep in mind that each refresh starts a separate kubectl process.

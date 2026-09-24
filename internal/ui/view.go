@@ -457,7 +457,7 @@ func (m *Model) helpBox() string {
 		{"esc", "back · ctrl+c quits"},
 		{"", ""},
 		{"prod", "commands on prod clusters ask for y first"},
-		{"kubectl", presentation.SafeText(m.version)},
+		{"version", presentation.SafeText(m.version)},
 	}
 	var b strings.Builder
 	b.WriteString(boldStyle.Render("Keys") + "\n\n")

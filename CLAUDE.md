@@ -19,7 +19,9 @@ commands the user explicitly runs inside a container can change container state.
 
 The user-facing README (`Readme.md`) is the most
 complete description of behavior — read it before changing UX, keybindings, or
-config schema, and update it when those change.
+config schema, and update it when those change. User-visible changes also get a
+line under `Unreleased` in `CHANGELOG.md` (Keep a Changelog; releases are
+`vX.Y.Z` tags, embedded via `-ldflags -X main.version`).
 
 ## Commands
 
