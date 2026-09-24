@@ -20,7 +20,7 @@ It is a single binary that drives your local `kubectl` and `gcloud`: no server, 
 ## Quick start
 
 ```sh
-git clone <repository-url> kubernetes-terminal-browser
+git clone https://github.com/alexrails/kubernetes-terminal-browser.git
 cd kubernetes-terminal-browser
 make install   # builds and installs ~/.local/bin/ktb
 ktb
