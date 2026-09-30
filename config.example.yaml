@@ -12,3 +12,7 @@ actions:
     argv: ["bundle", "exec", "rails", "console"]
     stdin: true
     tty: true
+# The action menu can run an action in a new pane. The multiplexer (tmux, zellij, herdr,
+# WezTerm, kitty) is detected; set pane only for another command or layout.
+# ktb appends its own command as separate arguments.
+# pane: ["tmux", "split-window", "-v"]

@@ -7,6 +7,13 @@ tag `vX.Y.Z`, and `ktb --version` prints it.
 
 ## [Unreleased]
 
+### Added
+
+- The action menu lists every action a second time, to run in a new terminal
+  pane beside `ktb` (tmux, zellij, herdr, WezTerm, kitty; `pane` in `config.yaml` sets
+  another command). The pane repeats the pod UID check and closes when the
+  command exits.
+
 ## [0.1.1] - 2026-09-24
 
 ### Added

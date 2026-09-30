@@ -16,6 +16,15 @@ func TestActionArgvValidation(t *testing.T) {
 		}
 	}
 }
+func TestPaneValidation(t *testing.T) {
+	c, e := Decode(strings.NewReader("pane: [tmux, split-window, -v]\n"))
+	if e != nil || len(c.Pane) != 3 {
+		t.Fatal(c.Pane, e)
+	}
+	if _, e = Decode(strings.NewReader("pane: ['', split-window]\n")); e == nil {
+		t.Fatal("accepted a pane command without an executable")
+	}
+}
 func TestNamespace(t *testing.T) {
 	for _, s := range []string{"default", "my-ns", "a"} {
 		if !ValidNamespace(s) {

@@ -15,8 +15,10 @@ import (
 	"kubernetes-terminal-browser/internal/kube"
 	"kubernetes-terminal-browser/internal/kube/kubectl"
 	"kubernetes-terminal-browser/internal/kubeconfig"
+	"kubernetes-terminal-browser/internal/pane"
 	"kubernetes-terminal-browser/internal/presentation"
 	"kubernetes-terminal-browser/internal/terminal"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -43,6 +45,11 @@ type result struct {
 	data           any
 	err            error
 	foreground     bool
+}
+type opened struct {
+	generation uint64
+	label      string
+	err        error
 }
 type poll struct{ generation, token uint64 }
 type logTick struct{ generation uint64 }
@@ -107,8 +114,14 @@ type Model struct {
 	// The action menu is a popup over menuFrom (pods or containers).
 	menuFrom   screen
 	menuCursor int
-	// confirm is an action waiting for y on a prod cluster.
+	// confirm is an action waiting for y on a prod cluster; beside sends it
+	// to a new pane.
 	confirm *config.Action
+	beside  bool
+	// opener creates the pane for the menu's "in a new pane" entries, which
+	// run self there; nil when no multiplexer is known.
+	opener *pane.Opener
+	self   string
 	// nsReturn is where Esc on the namespace list goes.
 	nsReturn  screen
 	spinFrame int
@@ -133,6 +146,10 @@ func New(ctx context.Context, c kubectl.Client, gc gcloud.Client, cfg config.Con
 
 // Start opens target t as soon as the program runs.
 func (m *Model) Start(t config.Target) { m.start = &t }
+
+// Panes adds the "in a new pane" entries to the action menu: o creates the
+// pane and the ktb executable self runs there.
+func (m *Model) Panes(o pane.Opener, self string) { m.opener, m.self = &o, self }
 
 func (m *Model) startScreen() screen {
 	switch {
@@ -449,8 +466,7 @@ func (m *Model) foregroundAt(kind, where string, fn func(context.Context, kubect
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		fmt.Fprintf(t.Out, "\n%s %s\n%s\n\n", bannerStyle.Render(" ktb "), titleStyle.Render(presentation.SafeText(kind)),
-			dimStyle.Render(presentation.SafeText(where)+" · ktb returns when the command exits"))
+		fmt.Fprint(t.Out, banner(kind, where+" · ktb returns when the command exits", false))
 		c.Foreground = &t
 		data, runErr = fn(ctx, c, t)
 		return runErr
@@ -631,7 +647,7 @@ func (m *Model) openPod(p core.Pod, next string) tea.Cmd {
 	if len(cs) == 1 {
 		switch next {
 		case "shell":
-			return m.execute(actions.Shell(m.cfg))
+			return m.execute(actions.Shell(m.cfg), false)
 		case "logs":
 			return m.openLogs()
 		}
@@ -671,17 +687,44 @@ func (m *Model) cycleContainer() {
 	}
 }
 
-// execute runs a on the chosen container; on a prod cluster it first asks.
-func (m *Model) execute(a config.Action) tea.Cmd {
+// execute runs a on the chosen container, in a new pane when beside is set;
+// on a prod cluster it first asks.
+func (m *Model) execute(a config.Action, beside bool) tea.Cmd {
 	if !m.container.Running {
 		m.err = "Container " + m.container.Name + " is not running; logs may still be available"
 		return nil
 	}
 	if m.prod() {
-		m.confirm = &a
+		m.confirm, m.beside = &a, beside
 		return nil
 	}
+	if beside {
+		return m.runBeside(a)
+	}
 	return m.run(a)
+}
+
+// runBeside starts a in a new pane and closes the menu. The pane's ktb does
+// the UID guard itself, right before its exec. The opener runs under the root
+// context: leaving this screen must not cancel a pane already being created.
+func (m *Model) runBeside(a config.Action) tea.Cmd {
+	r := m.containerRef()
+	s := pane.Session{Ref: r, Action: a, Kubectl: m.client.Executable, Timeout: m.client.Timeout, Where: m.location() + " › " + r.Pod.Name + " / " + r.Name, Prod: m.prod(), Env: pane.Environment(os.LookupEnv)}
+	s.Dir, _ = os.Getwd()
+	arg, e := s.Encode()
+	if e != nil {
+		m.err = e.Error()
+		return nil
+	}
+	m.err, m.status, m.sessionStatus = "", "", ""
+	ctx, g, o, self, timeout := m.root, m.generation, *m.opener, m.self, m.client.Timeout
+	open := func() tea.Msg {
+		return opened{g, a.Label, o.Open(ctx, timeout, self, arg)}
+	}
+	if m.screen == actionList {
+		return tea.Batch(m.back(), open)
+	}
+	return open
 }
 func (m *Model) run(a config.Action) tea.Cmd {
 	r := m.containerRef()
@@ -960,6 +1003,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return logTick{g} })
 	case result:
 		return m, m.handleResult(v)
+	case opened:
+		// A failure is shown wherever the user is by now; the success note
+		// belongs only to the scope it was asked in.
+		if v.err != nil {
+			m.err = v.err.Error()
+		} else if v.generation == m.generation {
+			m.sessionStatus = "Opened " + v.label + " in a new pane"
+		}
+		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.key(v)
 	}
@@ -1209,7 +1261,7 @@ func (m *Model) openTargetPod(t config.Target) tea.Cmd {
 	for i, a := range m.cfg.Actions {
 		if a.ID == t.Action {
 			m.menuCursor = i
-			return m.execute(a)
+			return m.execute(a, false)
 		}
 	}
 	return nil
@@ -1221,9 +1273,12 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return tea.Quit
 	}
 	if m.confirm != nil {
-		a := *m.confirm
-		m.confirm = nil
+		a, beside := *m.confirm, m.beside
+		m.confirm, m.beside = nil, false
 		if key == "y" || key == "Y" {
+			if beside {
+				return m.runBeside(a)
+			}
 			return m.run(a)
 		}
 		m.status = "Cancelled"
@@ -1311,7 +1366,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		if m.screen == containers && m.pickContainer() {
 			switch next {
 			case "shell":
-				return m.execute(actions.Shell(m.cfg))
+				return m.execute(actions.Shell(m.cfg), false)
 			case "logs":
 				return m.openLogs()
 			default:
@@ -1389,8 +1444,23 @@ func (m *Model) toggle() tea.Cmd {
 	m.cursor = 0
 	return nil
 }
-func (m *Model) menuKey(k tea.KeyPressMsg) tea.Cmd {
+
+// menuLen counts the menu entries: every action, and with a pane opener every
+// action once more, to run in a new pane.
+func (m *Model) menuLen() int {
+	if m.opener != nil {
+		return 2 * len(m.cfg.Actions)
+	}
+	return len(m.cfg.Actions)
+}
+
+// menuItem is entry i of the menu and whether it runs in a new pane.
+func (m *Model) menuItem(i int) (config.Action, bool) {
 	n := len(m.cfg.Actions)
+	return m.cfg.Actions[i%n], i >= n
+}
+func (m *Model) menuKey(k tea.KeyPressMsg) tea.Cmd {
+	n := m.menuLen()
 	switch key := k.String(); key {
 	case "esc", "q":
 		return m.back()
@@ -1402,12 +1472,12 @@ func (m *Model) menuKey(k tea.KeyPressMsg) tea.Cmd {
 		m.cycleContainer()
 	case "enter":
 		if m.menuCursor >= 0 && m.menuCursor < n {
-			return m.execute(m.cfg.Actions[m.menuCursor])
+			return m.execute(m.menuItem(m.menuCursor))
 		}
 	default:
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' && int(key[0]-'1') < n {
 			m.menuCursor = int(key[0] - '1')
-			return m.execute(m.cfg.Actions[m.menuCursor])
+			return m.execute(m.menuItem(m.menuCursor))
 		}
 	}
 	return nil

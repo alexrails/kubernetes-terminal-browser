@@ -51,6 +51,7 @@ PTY smoke tests (require `make build` first; Python 3 stdlib only):
 ```sh
 python3 scripts/pty_smoke.py       # fake gcloud/kubectl: cluster select, namespace, exec, Ctrl+C, resize, logs, SIGTERM
 python3 scripts/auth_pty_smoke.py  # fake kubectl: Always manual mode, IfAvailable probe → ManualOnly
+python3 scripts/pane_pty_smoke.py  # fake multiplexer: a pane entry of the menu, the pane's exec, a replaced pod refused
 ```
 
 Integration tests against a real kind cluster are opt-in and documented in
@@ -71,15 +72,16 @@ about all the others.
 - `internal/auth` — per-context access `Mode` state machine: `BackgroundReady` → `NeedsAuth`/`ForegroundRetry` → `ManualOnly`. `ManualOnly` is deliberately sticky; only an explicit re-enable (`ctrl+b`) leaves it.
 - `internal/process` — background child processes: process groups, bounded output buffers, cancellation, `Shutdown`.
 - `internal/terminal` — foreground commands that run **only while Bubble Tea has released the TTY** (exec, gcloud, manual-mode logs). Deliberately a different lifecycle from `process`: interactive children stay in the terminal's foreground process group, so shutdown kills only that child's tree.
+- `internal/pane` — the action menu's "in a new pane" entries: detects the multiplexer (tmux, zellij, herdr, WezTerm, kitty, or `pane` from `config.yaml`) and asks it to run `ktb --pane-session <Session>` in a new pane. The session is one exec plus the opener's `KUBECONFIG`/`PATH` and working directory, base64-encoded; herdr types its command into a shell, so there the session travels in the pane's environment and never reaches shell history. The pane is owned by the multiplexer, not by `ktb`: it is a third lifecycle, deliberately outside `process` tracking and `terminal`'s child tree, and it survives `ktb` exiting.
 - `internal/presentation` — pure formatting: `pods.go` (column adapter derived from Kubernetes printer v1.35.0, license attribution kept in-source), `apps.go` (owner-based grouping: ReplicaSet→Deployment, suffixed Job→CronJob), `logs.go`.
 - `internal/kubeconfig` — reading contexts out of kubeconfig.
 - `internal/ui` — Bubble Tea model. `model.go` holds state and `Update`; `view.go` renders; `table.go` holds the lipgloss palette and table/column layout.
 
 ### Things that are load-bearing
 
-- **UID guard before exec.** The pod is re-fetched and its UID compared before any exec. A pod with the same name but a new UID must be re-selected; no command is retried automatically onto a replacement pod.
+- **UID guard before exec.** The pod is re-fetched and its UID compared before any exec; for a pane session (`ui.Attach`) that happens in the pane, which starts later than the keypress. A pod with the same name but a new UID must be re-selected; no command is retried automatically onto a replacement pod.
 - **`Scope.Generation`** discriminates stale async results. Out-of-order results are dropped rather than applied.
-- **Prod confirmation.** Clusters with `env: prod` (or a `-prd`/`-prod` suffix on cluster or project name) require a `y` keypress before any in-container command. Logs and describe do not require it.
+- **Prod confirmation.** Clusters with `env: prod` (or a `-prd`/`-prod` suffix on cluster or project name) require a `y` keypress before any in-container command, pane sessions included (asked before the pane opens). Logs and describe do not require it.
 - **Background reads never get stdin.** Anything that could prompt for credentials must go through `internal/terminal` with the TTY released.
 - **Failure keeps the old rows** marked `STALE` rather than clearing the table.
 

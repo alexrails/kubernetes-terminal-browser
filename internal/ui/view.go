@@ -416,7 +416,11 @@ func (m *Model) menuBox() string {
 		b.WriteString(dimStyle.Render("container  ") + c + "\n")
 	}
 	b.WriteString("\n")
-	for i, a := range m.cfg.Actions {
+	for i := range m.menuLen() {
+		a, beside := m.menuItem(i)
+		if beside && i == len(m.cfg.Actions) {
+			b.WriteString("\n" + dimStyle.Render("in a new pane, ktb stays open") + "\n")
+		}
 		line := fmt.Sprintf("%d  %s", i+1, presentation.SafeText(a.Label))
 		if i == m.menuCursor {
 			b.WriteString(menuCursorStyle.Render("› "+line) + "\n")
@@ -435,8 +439,12 @@ func (m *Model) confirmBox() string {
 	if m.selected != nil {
 		pod = m.selected.Name
 	}
+	in := " in\n"
+	if m.beside {
+		in = " in a new pane in\n"
+	}
 	body := prodStyle.Render(" PROD ") + " " + boldStyle.Render(presentation.SafeText(m.location())) + "\n\n" +
-		"Run " + boldStyle.Render(presentation.SafeText(m.confirm.Label)) + " in\n" +
+		"Run " + boldStyle.Render(presentation.SafeText(m.confirm.Label)) + in +
 		presentation.SafeText(pod+" / "+container) + "?\n\n" +
 		keyStyle.Render("y") + dimStyle.Render(" run · any other key cancels")
 	return boxStyle.BorderForeground(badColor).Render(body)
@@ -449,6 +457,7 @@ func (m *Model) helpBox() string {
 		{"enter", "open; on an application with one pod, its action menu"},
 		{"tab", "targets ⇄ clusters · applications ⇄ pods · menu: container"},
 		{"ctrl+s / ctrl+l / ctrl+d", "shell / logs / describe for the selected pod"},
+		{"in a new pane", "action menu entries that run the action in a pane beside ktb"},
 		{"ctrl+g / ctrl+k / ctrl+n", "start screen / contexts / namespace"},
 		{"ctrl+r", "refresh; on clusters: run gcloud get-credentials again"},
 		{"ctrl+f", "find GKE clusters in known projects; after a typed prefix, in projects starting with it"},

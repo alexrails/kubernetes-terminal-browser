@@ -23,6 +23,9 @@ type Config struct {
 	Refresh time.Duration `yaml:"refresh"`
 	Timeout time.Duration `yaml:"timeout"`
 	Actions []Action      `yaml:"actions"`
+	// Pane is the command that opens a terminal pane; empty means detect the
+	// multiplexer from the environment.
+	Pane []string `yaml:"pane"`
 	// Clusters and Targets come from the separate clusters file (LoadClusters).
 	Clusters []Cluster `yaml:"-"`
 	Targets  []Target  `yaml:"-"`
@@ -105,6 +108,11 @@ func (c Config) Validate() error {
 			if strings.ContainsRune(v, 0) {
 				return fmt.Errorf("action %q contains NUL", a.ID)
 			}
+		}
+	}
+	for i, v := range c.Pane {
+		if (i == 0 && v == "") || strings.ContainsRune(v, 0) {
+			return fmt.Errorf("pane needs a command without NUL")
 		}
 	}
 	if e := validateClusters(c.Clusters); e != nil {

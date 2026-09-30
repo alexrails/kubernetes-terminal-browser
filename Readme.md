@@ -34,6 +34,7 @@ No configuration is needed: without a cluster list, `ktb` shows the GKE clusters
 - **Applications, not pods** — pods are grouped by Deployment, StatefulSet, DaemonSet, CronJob or Job; `Tab` shows the flat pod list.
 - **Fuzzy type-to-search** on every list: `adweb` finds `admin-web`.
 - **Action menu** — Shell, Rails console or your own commands, on any container of the pod.
+- **Sessions side by side** — the action menu can run an action in a new terminal pane (tmux, zellij, herdr, WezTerm, kitty), and `ktb` stays open beside it.
 - **Prod protection** — a red `PROD` badge, and every command in a container needs a `y`.
 - **Cluster discovery** — from kubeconfig and `gcloud`; `get-credentials` runs only when a context is missing.
 - Logs (tail, follow, previous), `describe` with the pod's events, and a manual mode for interactive credential plugins.
@@ -118,6 +119,28 @@ Before every exec, `ktb` fetches the pod again and compares its UID: a pod repla
 
 Exec does not start in a container that is not running; its logs may still be available. Action arguments are passed as they are, without a local shell.
 
+### Sessions in a new pane
+
+Inside a terminal multiplexer the action menu lists every action twice: the second group, under `in a new pane`, runs the action in a new pane to the right instead of handing over the terminal. Its entries are numbered on, so with two actions `3` is the shell in a new pane. `ktb` stays where it was, so you can open a second console, or the logs of the same pod, next to the first.
+
+| Running inside | Pane opened with |
+| --- | --- |
+| tmux | `tmux split-window -h` |
+| zellij | `zellij run --close-on-exit --direction right` |
+| herdr | `herdr pane split --direction right`, then `herdr pane run` |
+| WezTerm | `wezterm cli split-pane --right` |
+| kitty | `kitty @ launch --location=vsplit` (needs remote control over a socket: `allow_remote_control` and `listen_on`) |
+
+The first match in that order is used; [`pane`](#configyaml) in `config.yaml` replaces it, for another terminal or another layout. Outside all of them the menu has no second group.
+
+The pane runs a second `ktb` for that one session:
+
+- The prod confirmation is asked in the `ktb` you chose the action in, before the pane opens.
+- The pane fetches the pod again and compares its UID right before its exec, like a session in the foreground.
+- The pane closes when the command exits. A failure stays on screen until Enter.
+- The pane uses the `KUBECONFIG`, `PATH` and working directory of the `ktb` that opened it, not those of the multiplexer's server.
+- The session belongs to the pane, not to the `ktb` that opened it: quitting `ktb` leaves it running.
+
 ### Logs and describe
 
 `ctrl+l` opens the last 200 lines with timestamps, without follow:
@@ -151,7 +174,7 @@ Typing on any list filters it; commands therefore use `ctrl`.
 | `ctrl+g` / `ctrl+k` | Lists | Start screen / kubeconfig contexts |
 | `ctrl+n` | Pods | Change namespace |
 | `ctrl+b` | Pods | Re-enable background reads after manual mode |
-| `1`–`9` | Action menu | Run an action by number |
+| `1`–`9` | Action menu | Run an entry by number, [pane entries](#sessions-in-a-new-pane) included |
 | `y` | Prod confirmation | Run; any other key cancels |
 | `?` / `ctrl+c` | Everywhere | Help / quit |
 
@@ -191,7 +214,7 @@ Without `env`, a cluster is prod when its name or project ends in `-prd` or `-pr
 
 ### `config.yaml`
 
-Refresh, timeouts and actions. The defaults are `refresh: 5s`, `timeout: 15s` and the two actions below; [`config.example.yaml`](config.example.yaml) holds them as a starting point.
+Refresh, timeouts, actions and the pane command. The defaults are `refresh: 5s`, `timeout: 15s` and the two actions below; [`config.example.yaml`](config.example.yaml) holds them as a starting point.
 
 ```yaml
 refresh: 5s        # pod refresh interval; 0 disables, otherwise at least 1s
@@ -207,7 +230,10 @@ actions:           # replaces the default list
     argv: ["bundle", "exec", "rails", "console"]
     stdin: true
     tty: true
+pane: ["tmux", "split-window", "-v"]   # optional: how the menu opens a pane
 ```
+
+`pane` is the command that opens a terminal pane and runs a program in it. `ktb` appends its own command as separate arguments, so the command must run them directly, without a shell; after `zellij run` or `wezterm cli split-pane`, end the list with `"--"`. Without `pane`, the multiplexer is [detected](#sessions-in-a-new-pane).
 
 `id` and `label` must be unique, and `tty: true` needs `stdin: true`. `argv` is a list of separate arguments, not a command line; for shell syntax, ask for it: `argv: ["sh", "-lc", "echo ready"]`. `ctrl+s` runs the action with `id: sh`, or `/bin/sh` when there is none.
 

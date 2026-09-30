@@ -10,7 +10,10 @@ import (
 	"kubernetes-terminal-browser/internal/config"
 	"kubernetes-terminal-browser/internal/gcloud"
 	"kubernetes-terminal-browser/internal/kube/kubectl"
+	"kubernetes-terminal-browser/internal/pane"
+	"kubernetes-terminal-browser/internal/presentation"
 	"kubernetes-terminal-browser/internal/process"
+	"kubernetes-terminal-browser/internal/terminal"
 	"kubernetes-terminal-browser/internal/ui"
 	"os"
 	"os/exec"
@@ -30,7 +33,49 @@ func ktbVersion() string {
 	}
 	return version
 }
+
+// attach is the ktb that the action menu starts in a new pane: it runs one exec session
+// and exits, which closes the pane. A failure stays on screen until Enter,
+// because the pane would take the message with it.
+func attach(v string) error {
+	s, e := pane.Decode(v)
+	if e != nil {
+		return e
+	}
+	s.Apply(os.Setenv, os.Unsetenv)
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("ktb requires a terminal on stdin and stdout")
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGHUP)
+	defer cancel()
+	// Ctrl+C belongs to the command in the container. It is caught rather
+	// than ignored: an ignored signal would be inherited by kubectl.
+	interrupts := make(chan os.Signal, 1)
+	signal.Notify(interrupts, os.Interrupt)
+	t := terminal.IO{In: os.Stdin, Out: os.Stdout, Err: os.Stderr}
+	if s.Dir != "" {
+		e = os.Chdir(s.Dir)
+	}
+	if e == nil {
+		e = ui.Attach(ctx, s, t)
+	}
+	signal.Stop(interrupts)
+	if e != nil && ctx.Err() == nil {
+		fmt.Fprintln(os.Stderr, "\nktb:", presentation.SafeText(e.Error()))
+		terminal.WaitForEnter(ctx, t, "Press Enter to close this pane.\n")
+		return nil
+	}
+	return e
+}
 func run() error {
+	if len(os.Args) > 1 && len(os.Args) < 4 && os.Args[1] == pane.Flag {
+		v := os.Getenv(pane.Var)
+		os.Unsetenv(pane.Var)
+		if len(os.Args) == 3 {
+			v = os.Args[2]
+		}
+		return attach(v)
+	}
 	source := flag.String("kubeconfig", "", "Explicit kubeconfig file (otherwise kubectl resolves KUBECONFIG/default)")
 	ns := flag.String("namespace", "", "Initial namespace override")
 	cfgPath := flag.String("config", config.DefaultPath(), "Application YAML config")
@@ -110,6 +155,11 @@ func run() error {
 	m := ui.New(ctx, kubectl.Client{Executable: bin, Timeout: c.Timeout}, gcloud.Client{Executable: *gcloudExecutable, Kubeconfig: *source}, c, *source, *ns, "ktb "+ktbVersion()+" · kubectl "+kv)
 	if start != nil {
 		m.Start(*start)
+	}
+	if o, ok := pane.Detect(os.Getenv, c.Pane); ok {
+		if self, e := os.Executable(); e == nil {
+			m.Panes(o, self)
+		}
 	}
 	p := tea.NewProgram(m)
 	signals := make(chan os.Signal, 1)
